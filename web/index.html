@@ -1,0 +1,652 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>pager-sniffer</title>
+<style>
+  :root{
+    --bg:#0b0f14; --panel:#121821; --panel2:#0e141d; --line:#1e2a38;
+    --fg:#d7e2ec; --dim:#7d8ea0; --accent:#37d3ee; --pocsag:#37d3ee;
+    --flex:#e07bff; --flag:#ffd23f; --ok:#4ade80; --bad:#f97066; --sig:#f5a524;
+    --mono:"SF Mono",ui-monospace,"JetBrains Mono",Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{background:var(--bg);color:var(--fg);font:13px/1.45 var(--mono);
+       display:flex;flex-direction:column;overflow:hidden}
+  header{display:flex;align-items:center;gap:16px;flex-wrap:wrap;
+         padding:8px 14px;background:var(--panel);border-bottom:1px solid var(--line)}
+  header h1{font-size:13px;margin:0;letter-spacing:.14em;color:var(--accent);
+            text-transform:uppercase;font-weight:700}
+  .stat{display:flex;flex-direction:column;line-height:1.15}
+  .stat b{font-size:15px}
+  .stat span{font-size:10px;color:var(--dim);text-transform:uppercase;letter-spacing:.08em}
+  .stat.flag b{color:var(--flag)}
+  .stat.sig b{color:var(--sig)}
+  .stat.sig b.hot{color:var(--ok);text-shadow:0 0 10px var(--ok)}
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--bad);
+       display:inline-block;margin-right:6px;vertical-align:middle}
+  .dot.live{background:var(--ok);box-shadow:0 0 8px var(--ok)}
+  .spacer{flex:1}
+  #banner{display:flex;align-items:center;gap:10px;padding:7px 14px;font-size:12px;
+          border-bottom:1px solid var(--line)}
+  #banner span{flex:1;white-space:pre-wrap}
+  #banner.ok{background:#0e2016;color:var(--ok)}
+  #banner.warn{background:#241f0c;color:var(--flag)}
+  #banner.error{background:#2a1113;color:var(--bad)}
+  #banner button{padding:1px 9px}
+  .controls{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+  button,select,input{font:12px var(--mono);color:var(--fg);background:var(--panel2);
+         border:1px solid var(--line);border-radius:6px;padding:5px 9px}
+  button{cursor:pointer}
+  button:hover{border-color:var(--accent);color:var(--accent)}
+  button.on{border-color:var(--accent);color:var(--accent);background:#0f2630}
+  input{width:96px}
+  #graphWrap{position:relative;height:330px;background:var(--panel2);
+             border-bottom:1px solid var(--line)}
+  #graph{position:absolute;inset:0;width:100%;height:100%}
+  #legend{position:absolute;top:8px;right:12px;display:flex;gap:14px;
+          font-size:11px;color:var(--dim);pointer-events:none}
+  #legend i{width:9px;height:9px;border-radius:2px;display:inline-block;margin-right:5px}
+  #logHead{display:flex;gap:10px;align-items:center;padding:6px 14px;
+           background:var(--panel);border-bottom:1px solid var(--line)}
+  #logHead .title{color:var(--dim);text-transform:uppercase;letter-spacing:.1em;font-size:11px}
+  #filter{width:220px}
+  #log{flex:1;overflow-y:auto;padding:2px 0}
+  .row{display:grid;grid-template-columns:82px 92px 108px 96px 1fr;gap:10px;
+       padding:3px 14px;border-bottom:1px solid #10161f;white-space:nowrap;
+       cursor:pointer}
+  .row:hover{background:#0f151e}
+  .detail{background:#0c1219;border-bottom:1px solid #10161f;padding:9px 24px}
+  .detail>div{display:grid;grid-template-columns:132px 1fr;gap:10px;padding:2px 0}
+  .detail b{color:var(--dim);font-weight:400}
+  .detail .v{color:var(--fg);white-space:pre-wrap;word-break:break-all}
+  .detail .v mark{background:var(--flag);color:#111;padding:0 3px;border-radius:3px}
+  .detail button{margin-top:7px;padding:3px 10px}
+  .row .msg{white-space:pre-wrap;word-break:break-word;color:var(--fg)}
+  .row .t{color:var(--dim)}
+  .row .f{color:var(--accent)}
+  .row .p.pocsag{color:var(--pocsag)}
+  .row .p.flex{color:var(--flex)}
+  .row .p.sig{color:var(--sig)}
+  .row .a{color:var(--dim)}
+  .row.sig{background:rgba(245,165,36,.07);border-left:3px solid var(--sig)}
+  .row.sig .msg{color:var(--sig)}
+  .row.flag{background:rgba(255,210,63,.08);border-left:3px solid var(--flag)}
+  .row mark{background:var(--flag);color:#111;padding:0 3px;border-radius:3px}
+  .row .raw{display:none;grid-column:1/-1;color:#8aa0b4;
+            white-space:pre-wrap;word-break:break-word}
+  #log.raw-mode .row{display:block;padding:3px 14px}
+  #log.raw-mode .row>span:not(.raw){display:none}
+  #log.raw-mode .row .raw{display:block}
+  #jump{position:absolute;right:24px;bottom:16px;display:none;
+        background:#0f2630;border-color:var(--accent);color:var(--accent)}
+  #flags{max-height:132px;overflow-y:auto;background:#141207;
+         border-top:1px solid var(--line)}
+  #flags:empty{display:none}
+  #flags .fr{padding:5px 14px;border-bottom:1px solid #241f0c;color:var(--flag);
+             white-space:pre-wrap;word-break:break-word;cursor:pointer}
+  #flags .fr:hover{background:#1c1809}
+  .muted{color:var(--dim)}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>pager&nbsp;sniffer</h1>
+  <div class="stat"><b id="sTuned">--</b><span id="sMode">tuned</span></div>
+  <div class="stat"><b id="sTotal">0</b><span>packets</span></div>
+  <div class="stat"><b id="sPocsag" style="color:var(--pocsag)">0</b><span>pocsag</span></div>
+  <div class="stat"><b id="sFlex" style="color:var(--flex)">0</b><span>flex</span></div>
+  <div class="stat flag"><b id="sFlags">0</b><span>flag hits</span></div>
+  <div class="stat sig"><b id="sSignals">0</b><span>signals</span></div>
+  <div class="stat sig" title="live channel level from the raw-signal monitor">
+    <b id="sLevel">--</b><span id="sLevelSub">dBFS</span></div>
+  <div class="stat"><b id="sRate">0</b><span>pkt/min</span></div>
+  <div class="spacer"></div>
+  <div class="controls">
+    <span><span class="dot" id="conn"></span><span id="connTxt" class="muted">connecting</span></span>
+    <button id="bCycle">cycle</button>
+    <select id="campSel" title="camp frequency"></select>
+    <button id="bCamp">camp</button>
+    <button id="bNext" title="skip to next channel">next &raquo;</button>
+    <label class="muted">dwell<input id="dwell" type="number" min="3" step="1" value="20"></label>
+    <button id="bClear">clear</button>
+  </div>
+</header>
+
+<div id="banner" hidden><span></span><button id="bDismiss">dismiss</button></div>
+
+<div id="graphWrap">
+  <canvas id="graph"></canvas>
+  <div id="legend">
+    <span><i style="background:var(--pocsag)"></i>POCSAG</span>
+    <span><i style="background:var(--flex)"></i>FLEX</span>
+    <span><i style="background:var(--sig)"></i>signal / carrier</span>
+    <span><i style="background:var(--flag)"></i>flag</span>
+    <span class="muted">— tuned</span>
+  </div>
+</div>
+
+<div id="flags"></div>
+
+<div id="logHead">
+  <span class="title">captured messages</span>
+  <input id="filter" placeholder="filter (address / text / freq)">
+  <button id="bAuto" class="on">auto-scroll</button>
+  <button id="bRaw" title="show the raw multimon-ng packet lines">raw</button>
+  <span class="muted" id="shown"></span>
+</div>
+<div id="log"></div>
+<button id="jump">jump to latest ▾</button>
+
+<script>
+"use strict";
+const $ = s => document.querySelector(s);
+
+/* ---------- state ---------- */
+let ST = {channels_mhz:[], graph_window_seconds:180, current_freq_mhz:null,
+          mode:"cycle", dwell_seconds:20, now:Date.now()/1000, simulate:false,
+          signal_monitor:false, signal_threshold_db:6,
+          signal:{dbfs:null,floor:null,snr:null,active:false}};
+const pkts = [];                 // {ts,freq_mhz,protocol,flag_hit,...}
+const rows = [];                 // {rec, el}
+const sigHist = [];              // {ts,dbfs,floor,snr,active} - raw-signal monitor
+let autoScroll = true, lastId = 0;
+const rateHist = [];             // recent ts, for pkt/min
+
+/* ---------- SSE ---------- */
+function connect(){
+  const es = new EventSource("/events");
+  es.addEventListener("open", ()=>setConn(true));
+  es.addEventListener("error", ()=>setConn(false));
+  es.addEventListener("state", e=>applyState(JSON.parse(e.data)));
+  es.addEventListener("packet", e=>addPacket(JSON.parse(e.data)));
+  es.addEventListener("signal", e=>onSignal(JSON.parse(e.data)));
+}
+function setConn(ok){
+  $("#conn").classList.toggle("live", ok);
+  $("#connTxt").textContent = ok ? (ST.simulate ? "simulated" : "live") : "reconnecting";
+}
+
+/* ---------- state apply ---------- */
+function applyState(s){
+  ST = Object.assign(ST, s);
+  $("#sTuned").textContent = ST.current_freq_mhz ? ST.current_freq_mhz.toFixed(4) : "--";
+  $("#sMode").textContent  = ST.mode === "camp" ? "camp" : "tuned · cycle";
+  if(s.stats){
+    $("#sTotal").textContent  = s.stats.total;
+    $("#sPocsag").textContent = s.stats.pocsag;
+    $("#sFlex").textContent   = s.stats.flex;
+    $("#sFlags").textContent  = s.stats.flags;
+    $("#sSignals").textContent = s.stats.signals != null ? s.stats.signals : 0;
+  }
+  if(s.signal_threshold_db != null) ST.signal_threshold_db = s.signal_threshold_db;
+  if(s.signal) onSignal(s.signal, true);
+  $("#bCycle").classList.toggle("on", ST.mode === "cycle");
+  $("#bCamp").classList.toggle("on", ST.mode === "camp");
+  if(document.activeElement !== $("#dwell")) $("#dwell").value = ST.dwell_seconds;
+  syncCampSel();
+  setConn($("#conn").classList.contains("live"));
+  updateBanner();
+}
+
+let okBannerDone = false;
+function updateBanner(){
+  const b = $("#banner"), sp = b.querySelector("span"), pf = ST.preflight || {};
+  if(ST.simulate){ b.hidden = true; return; }
+  const age = (ST.now || 0) - (ST.started || 0);
+  let lvl, msg, transient = false;
+  if(pf.level === "error"){
+    lvl = "error"; msg = pf.msg;
+  } else if(pf.level === "warn" && pf.ok === false){
+    lvl = "warn"; msg = pf.msg;
+  } else if(!ST.capture_live && age > 10 && ST.stats && ST.stats.total === 0){
+    lvl = "warn";
+    msg = "no packets captured yet — " + (pf.msg || "check frequency, antenna and gain");
+  } else if(pf.level === "ok" && pf.msg && !okBannerDone){
+    lvl = "ok"; msg = pf.msg; transient = true;
+  }
+  if(!msg){ b.hidden = true; return; }
+  if(b.dataset.dismissed === msg){ b.hidden = true; return; }
+  b.className = "banner " + lvl;
+  sp.textContent = msg;
+  b.hidden = false;
+  if(transient){
+    okBannerDone = true;
+    setTimeout(() => { if($("#banner").className === "banner ok") $("#banner").hidden = true; }, 8000);
+  }
+}
+function syncCampSel(){
+  const sel = $("#campSel");
+  const want = (ST.channels_mhz||[]).map(f=>f.toFixed(4)).join(",");
+  if(sel.dataset.sig === want) return;
+  sel.dataset.sig = want;
+  const cur = sel.value;
+  sel.innerHTML = "";
+  (ST.channels_mhz||[]).forEach(f=>{
+    const o = document.createElement("option");
+    o.value = f.toFixed(4); o.textContent = f.toFixed(4) + " MHz";
+    sel.appendChild(o);
+  });
+  if(cur) sel.value = cur;
+}
+
+/* ---------- packets ---------- */
+const esc = s => (s==null?"":String(s)).replace(/[&<>"]/g,c=>(
+  {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+function addPacket(r){
+  if(r.id && r.id <= lastId) return;
+  if(r.id) lastId = r.id;
+  pkts.push(r);
+  const cut = Date.now()/1000 - Math.max(ST.graph_window_seconds, 60) - 5;
+  while(pkts.length && pkts[0].ts < cut) pkts.shift();
+  rateHist.push(r.ts);
+  addRow(r);
+  if(r.flag_hit) addFlag(r);
+}
+
+/* ---------- raw-signal monitor ---------- */
+function onSignal(s, fromState){
+  if(!s || s.dbfs == null){ return; }
+  ST.signal = s;
+  const ts = s.ts || Date.now()/1000;
+  // state snapshots repeat the same sample - don't stack duplicates
+  const last = sigHist[sigHist.length-1];
+  if(!(fromState && last && Math.abs(last.ts - ts) < 0.05)){
+    sigHist.push({ts, dbfs:s.dbfs, floor:s.floor, snr:s.snr, active:!!s.active});
+    const cut = Date.now()/1000 - Math.max(ST.graph_window_seconds, 60) - 5;
+    while(sigHist.length && sigHist[0].ts < cut) sigHist.shift();
+  }
+  updateLevel(s);
+}
+function updateLevel(s){
+  const el = $("#sLevel"), sub = $("#sLevelSub");
+  if(!ST.signal_monitor && !sigHist.length){ el.textContent = "off"; sub.textContent = "signal mon"; return; }
+  if(s.dbfs == null){ el.textContent = "--"; sub.textContent = "dBFS"; return; }
+  el.textContent = (s.dbfs>0?"+":"") + s.dbfs.toFixed(0);
+  el.classList.toggle("hot", !!s.active);
+  sub.textContent = s.active ? ("CARRIER +" + (s.snr||0).toFixed(0) + "dB")
+                             : ("dBFS · flr " + (s.floor==null?"--":s.floor.toFixed(0)));
+}
+
+function rowMatchesFilter(r, q){
+  if(!q) return true;
+  return (r.message+" "+r.address+" "+r.freq_mhz+" "+r.protocol+" "+(r.type||"")+" "+r.raw)
+         .toLowerCase().includes(q);
+}
+function highlightFlag(msg, flag){
+  if(!flag) return esc(msg);
+  const i = msg.indexOf(flag);
+  if(i < 0) return esc(msg);
+  return esc(msg.slice(0,i)) + "<mark>" + esc(flag) + "</mark>" + esc(msg.slice(i+flag.length));
+}
+
+function addRow(r){
+  const log = $("#log");
+  const stick = autoScroll &&
+        (log.scrollHeight - log.scrollTop - log.clientHeight) < 80;
+
+  const div = document.createElement("div");
+  const isSig = r.protocol === "SIGNAL";
+  div.className = "row" + (r.flag_hit ? " flag" : (isSig ? " sig" : ""));
+  const fam = isSig ? "sig" : (r.protocol.startsWith("FLEX") ? "flex" : "pocsag");
+  div.innerHTML =
+    `<span class="t">${esc(r.time)}</span>` +
+    `<span class="f">${r.freq_mhz.toFixed(4)}</span>` +
+    `<span class="p ${fam}">${esc(r.protocol)}</span>` +
+    `<span class="a">${esc(r.address||"·")}${r.type?" "+esc(r.type):""}</span>` +
+    `<span class="msg">${highlightFlag(r.message||r.raw||"", r.flag)}</span>` +
+    `<span class="raw">${highlightFlag(r.raw||"", r.flag)}</span>`;
+  div.addEventListener("click", e => {
+    if(e.target.tagName === "BUTTON") return;
+    toggleDetail(div, r);
+  });
+  log.appendChild(div);
+
+  const q = $("#filter").value.trim().toLowerCase();
+  div.hidden = !rowMatchesFilter(r, q);
+  rows.push({rec:r, el:div});
+
+  if(rows.length > 4000){
+    const drop = rows.splice(0, 1000);
+    drop.forEach(x => { dropDetail(x.el); x.el.remove(); });
+  }
+  if(stick){ log.scrollTop = log.scrollHeight; $("#jump").style.display = "none"; }
+  else if(!div.hidden){ $("#jump").style.display = "block"; }
+  updShown();
+}
+function dropDetail(rowEl){
+  const d = rowEl.nextElementSibling;
+  if(d && d.classList.contains("detail")) d.remove();
+}
+function toHex(s){
+  try{
+    return Array.from(new TextEncoder().encode(s))
+      .map(b => b.toString(16).padStart(2,"0")).join(" ");
+  }catch(_){ return ""; }
+}
+function showChars(s){                 // make control chars visible
+  return (s||"").replace(/[\x00-\x1f\x7f]/g, c =>
+    "<"+c.charCodeAt(0).toString(16).padStart(2,"0")+">");
+}
+function toggleDetail(rowEl, r){
+  const ex = rowEl.nextElementSibling;
+  if(ex && ex.classList.contains("detail")){ ex.remove(); return; }
+  const d = document.createElement("div");
+  d.className = "detail";
+  const fields = r.protocol === "SIGNAL" ? [
+    ["what",           "undecoded RF carrier detected by the raw-signal monitor"],
+    ["summary",        esc(r.message || "")],
+    ["frequency",      r.freq_mhz.toFixed(4) + " MHz"],
+    ["duration",       (r.duration_s != null ? r.duration_s + " s" : "·")],
+    ["peak level",     (r.peak_dbfs != null ? r.peak_dbfs + " dBFS" : "·")],
+    ["over noise",     (r.snr_db != null ? "+" + r.snr_db + " dB" : "·")],
+    ["received",       esc(r.date + " " + r.time)],
+    ["packet id",      r.id],
+  ] : [
+    ["message",        highlightFlag(r.message || "(no text — tone/numeric only)", r.flag)],
+    ["message (chars)", showChars(r.message)],
+    ["raw line",       esc(r.raw || "")],
+    ["message hex",    toHex(r.message || "")],
+    ["protocol",       esc(r.protocol)],
+    ["frequency",      r.freq_mhz.toFixed(4) + " MHz"],
+    ["capcode / addr", esc(r.address || "·")],
+    ["function",       r.function == null ? "·" : r.function],
+    ["type",           esc(r.type || "·")],
+    ["frame",          esc(r.frame || "·")],
+    ["received",       esc(r.date + " " + r.time)],
+    ["packet id",      r.id],
+  ];
+  d.innerHTML = fields.map(([k,v]) =>
+    `<div><b>${k}</b><span class="v">${v}</span></div>`).join("") +
+    `<button type="button">copy raw line</button>`;
+  d.querySelector("button").onclick = () => {
+    try{ navigator.clipboard.writeText(r.raw || r.message || ""); }catch(_){}
+  };
+  rowEl.after(d);
+}
+function updShown(){
+  const vis = rows.reduce((n,x)=>n+(x.el.hidden?0:1), 0);
+  $("#shown").textContent = vis === rows.length ? `${rows.length}` : `${vis}/${rows.length}`;
+}
+
+function addFlag(r){
+  const box = $("#flags");
+  const d = document.createElement("div");
+  d.className = "fr";
+  d.textContent = `${r.time}  ${r.freq_mhz.toFixed(4)} MHz  ${r.protocol}  cap=${r.address||"·"}  ${r.flag||r.message}`;
+  d.title = "click to copy";
+  d.onclick = () => navigator.clipboard && navigator.clipboard.writeText(r.flag||r.message);
+  box.appendChild(d);
+  box.scrollTop = box.scrollHeight;
+}
+
+/* ---------- controls ---------- */
+const ctl = qs => fetch("/api/control?" + qs).then(r=>r.json()).then(applyState).catch(()=>{});
+$("#bCycle").onclick = () => ctl("cmd=cycle");
+$("#bCamp").onclick  = () => ctl("cmd=camp&freq=" + encodeURIComponent($("#campSel").value));
+$("#bNext").onclick  = () => ctl("cmd=next");
+$("#bClear").onclick = () => { ctl("cmd=clear");
+  pkts.length=0; rateHist.length=0; sigHist.length=0;
+  rows.splice(0).forEach(x=>{ dropDetail(x.el); x.el.remove(); });
+  $("#flags").innerHTML=""; updShown(); };
+$("#dwell").onchange = () => ctl("cmd=dwell&v=" + encodeURIComponent($("#dwell").value));
+$("#filter").oninput = () => {
+  const q = $("#filter").value.trim().toLowerCase();
+  rows.forEach(x => {
+    x.el.hidden = !rowMatchesFilter(x.rec, q);
+    const d = x.el.nextElementSibling;
+    if(d && d.classList.contains("detail")) d.hidden = x.el.hidden;
+  });
+  updShown();
+};
+$("#bAuto").onclick = () => {
+  autoScroll = !autoScroll;
+  $("#bAuto").classList.toggle("on", autoScroll);
+  if(autoScroll){ const l=$("#log"); l.scrollTop=l.scrollHeight; $("#jump").style.display="none"; }
+};
+$("#bRaw").onclick = () => {
+  const on = $("#log").classList.toggle("raw-mode");
+  $("#bRaw").classList.toggle("on", on);
+  const l = $("#log");
+  if(autoScroll) l.scrollTop = l.scrollHeight;
+};
+$("#bDismiss").onclick = () => {
+  const b = $("#banner");
+  b.dataset.dismissed = b.querySelector("span").textContent;
+  b.hidden = true;
+};
+$("#jump").onclick = () => { const l=$("#log"); l.scrollTop=l.scrollHeight;
+  $("#jump").style.display="none"; };
+$("#log").addEventListener("scroll", () => {
+  const l = $("#log");
+  const atBottom = (l.scrollHeight - l.scrollTop - l.clientHeight) < 80;
+  if(atBottom) $("#jump").style.display = "none";
+});
+
+/* ---------- graph ---------- */
+const cv = $("#graph"), gx = cv.getContext("2d");
+function fitCanvas(){
+  const r = cv.getBoundingClientRect(), dpr = window.devicePixelRatio || 1;
+  cv.width = r.width * dpr; cv.height = r.height * dpr;
+  gx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+window.addEventListener("resize", fitCanvas);
+
+function freqRange(){
+  let lo = Infinity, hi = -Infinity;
+  const add = v => { if(v != null){ lo = Math.min(lo, v); hi = Math.max(hi, v); } };
+  pkts.forEach(p => add(p.freq_mhz));
+  add(ST.current_freq_mhz);
+  // Only fold the channel list into the scale while actually cycling it.
+  if(ST.mode !== "camp") (ST.channels_mhz||[]).forEach(add);
+  if(!isFinite(lo)){ lo = 148; hi = 154; }
+  if(hi - lo < 0.05){ lo -= 0.4; hi += 0.4; }
+  const pad = (hi - lo) * 0.12;
+  return [lo - pad, hi + pad];
+}
+
+function draw(){
+  const r = cv.getBoundingClientRect();
+  const W = r.width, H = r.height;
+  const padL = 66, padR = 14, padT = 14, padB = 22, strip = 54;
+  const sigLane = (ST.signal_monitor || sigHist.length) ? 88 : 0;
+  const plotB = H - padB - strip - sigLane;
+  const win = Math.max(ST.graph_window_seconds || 180, 30);
+  const now = Date.now()/1000;
+  const t0 = now - win;
+  const [fLo, fHi] = freqRange();
+
+  const xOf = ts => padL + (ts - t0)/win * (W - padL - padR);
+  const yOf = f  => padT + (1 - (f - fLo)/(fHi - fLo)) * (plotB - padT);
+
+  gx.clearRect(0, 0, W, H);
+
+  /* frequency gridlines */
+  gx.font = "10px var(--mono)";
+  gx.textBaseline = "middle";
+  gx.lineWidth = 1;
+  let drawn = 0;
+  (ST.channels_mhz||[]).forEach(f=>{
+    if(f < fLo || f > fHi) return;
+    const y = yOf(f);
+    gx.strokeStyle = "#16202c";
+    gx.beginPath(); gx.moveTo(padL, y); gx.lineTo(W - padR, y); gx.stroke();
+    gx.fillStyle = "#5b6b7d"; gx.textAlign = "right";
+    gx.fillText(f.toFixed(3), padL - 8, y);
+    drawn++;
+  });
+  if(drawn < 2){                       // camp mode / few channels: even ticks
+    for(let i = 0; i <= 4; i++){
+      const f = fLo + (fHi - fLo) * i / 4, y = yOf(f);
+      gx.strokeStyle = "#16202c";
+      gx.beginPath(); gx.moveTo(padL, y); gx.lineTo(W - padR, y); gx.stroke();
+      gx.fillStyle = "#5b6b7d"; gx.textAlign = "right";
+      gx.fillText(f.toFixed(4), padL - 8, y);
+    }
+  }
+
+  /* time gridlines every 30s */
+  gx.textAlign = "center"; gx.textBaseline = "top";
+  for(let s = Math.ceil(t0/30)*30; s <= now; s += 30){
+    const x = xOf(s);
+    gx.strokeStyle = "#131c26"; gx.beginPath();
+    gx.moveTo(x, padT); gx.lineTo(x, plotB); gx.stroke();
+    gx.fillStyle = "#4a5a6b";
+    gx.fillText("-" + Math.round(now - s) + "s", x, plotB + 5);
+  }
+
+  /* tuned-frequency line */
+  if(ST.current_freq_mhz){
+    const y = yOf(ST.current_freq_mhz);
+    gx.strokeStyle = "#8aa0b4"; gx.setLineDash([5, 4]); gx.lineWidth = 1;
+    gx.beginPath(); gx.moveTo(padL, y); gx.lineTo(W - padR, y); gx.stroke();
+    gx.setLineDash([]);
+    gx.fillStyle = "#8aa0b4"; gx.textAlign = "left"; gx.textBaseline = "bottom";
+    gx.fillText("tuned " + ST.current_freq_mhz.toFixed(4) +
+                (ST.mode === "camp" ? " (camp)" : ""), padL + 4, y - 3);
+  }
+
+  /* packet dots */
+  let flagPts = [];
+  pkts.forEach(p=>{
+    if(p.ts < t0) return;
+    if(p.protocol === "SIGNAL") return;   // shown on the signal lane instead
+    const x = xOf(p.ts), y = yOf(p.freq_mhz);
+    if(p.flag_hit){ flagPts.push([x, y]); return; }
+    gx.fillStyle = p.protocol.startsWith("FLEX")
+      ? "rgba(224,123,255,.85)" : "rgba(55,211,238,.8)";
+    gx.beginPath(); gx.arc(x, y, 3, 0, 7); gx.fill();
+  });
+  flagPts.forEach(([x, y])=>{
+    gx.fillStyle = "#ffd23f";
+    gx.shadowColor = "#ffd23f"; gx.shadowBlur = 10;
+    gx.beginPath(); gx.arc(x, y, 5, 0, 7); gx.fill();
+    gx.shadowBlur = 0;
+  });
+
+  /* ---- raw-signal lane: channel level (dBFS) over time ---- */
+  if(sigLane){
+    const lTop = plotB + 10, lBot = H - padB - strip - 6;
+    const vis = sigHist.filter(s => s.ts >= t0 - 1);
+    let dLo = -84, dHi = -18;
+    if(vis.length){
+      let mn = Infinity, mx = -Infinity;
+      for(const s of vis){
+        if(s.dbfs < mn) mn = s.dbfs;
+        if(s.dbfs > mx) mx = s.dbfs;
+        if(s.floor != null && s.floor < mn) mn = s.floor;
+      }
+      if(isFinite(mn)){ dLo = Math.floor((mn - 4)/6)*6; dHi = Math.ceil((mx + 5)/6)*6; }
+      if(dHi - dLo < 18) dHi = dLo + 18;
+    }
+    const yOfDb = v => lTop + (1 - (v - dLo)/(dHi - dLo)) * (lBot - lTop);
+
+    gx.save();
+    gx.beginPath();
+    gx.rect(padL, lTop, W - padL - padR, lBot - lTop);
+    gx.clip();
+
+    // active-carrier shading
+    gx.fillStyle = "rgba(245,165,36,.13)";
+    for(let i = 1; i < vis.length; i++){
+      if(vis[i].active){
+        const x1 = xOf(vis[i-1].ts), x2 = xOf(vis[i].ts);
+        gx.fillRect(x1, lTop, Math.max(1, x2 - x1), lBot - lTop);
+      }
+    }
+    // noise floor + carrier threshold (from the latest sample)
+    const cur = (vis.length ? vis[vis.length-1] : null) || ST.signal || {};
+    if(cur.floor != null){
+      const yF = yOfDb(cur.floor);
+      gx.strokeStyle = "#4a5a6b"; gx.setLineDash([2,3]); gx.lineWidth = 1;
+      gx.beginPath(); gx.moveTo(padL, yF); gx.lineTo(W - padR, yF); gx.stroke();
+      const yT = yOfDb(cur.floor + (ST.signal_threshold_db || 6));
+      gx.strokeStyle = "rgba(245,165,36,.6)";
+      gx.beginPath(); gx.moveTo(padL, yT); gx.lineTo(W - padR, yT); gx.stroke();
+      gx.setLineDash([]);
+    }
+    // level trace
+    if(vis.length){
+      gx.beginPath();
+      vis.forEach((s,i)=>{ const x = xOf(s.ts), y = yOfDb(s.dbfs);
+        i ? gx.lineTo(x,y) : gx.moveTo(x,y); });
+      gx.strokeStyle = "#f5a524"; gx.lineWidth = 1.4; gx.stroke();
+      gx.lineTo(xOf(vis[vis.length-1].ts), lBot);
+      gx.lineTo(xOf(vis[0].ts), lBot); gx.closePath();
+      gx.fillStyle = "rgba(245,165,36,.10)"; gx.fill();
+    }
+    // carrier-event markers
+    pkts.forEach(p=>{
+      if(p.protocol !== "SIGNAL" || p.ts < t0) return;
+      const x = xOf(p.ts);
+      gx.strokeStyle = "rgba(245,165,36,.5)"; gx.lineWidth = 1;
+      gx.beginPath(); gx.moveTo(x, lTop); gx.lineTo(x, lBot); gx.stroke();
+      gx.fillStyle = p.flag_hit ? "#ffd23f" : "#f5a524";
+      gx.beginPath(); gx.moveTo(x, lTop); gx.lineTo(x-4, lTop-6);
+      gx.lineTo(x+4, lTop-6); gx.closePath(); gx.fill();
+    });
+    gx.restore();
+
+    // frame + labels
+    gx.strokeStyle = "#233140"; gx.lineWidth = 1;
+    gx.strokeRect(padL, lTop, W - padL - padR, lBot - lTop);
+    gx.fillStyle = "#5b6b7d"; gx.textAlign = "right"; gx.textBaseline = "middle";
+    gx.fillText("signal", padL - 8, (lTop + lBot)/2);
+    gx.textBaseline = "top";    gx.fillText(dHi + "dB", padL - 8, lTop + 1);
+    gx.textBaseline = "bottom"; gx.fillText(dLo + "dB", padL - 8, lBot - 1);
+    if(!vis.length){
+      gx.fillStyle = "#4a5a6b"; gx.textAlign = "center"; gx.textBaseline = "middle";
+      gx.fillText(ST.signal_monitor ? "waiting for level data…"
+                                    : "signal monitor off", (padL + W - padR)/2,
+                  (lTop + lBot)/2);
+    }
+  }
+
+  /* bottom strip: packets per 5s bucket */
+  const bw = 5, nb = Math.ceil(win / bw);
+  const buckets = new Array(nb).fill(0);
+  pkts.forEach(p=>{
+    if(p.ts < t0) return;
+    const i = Math.min(nb - 1, Math.floor((p.ts - t0) / bw));
+    buckets[i]++;
+  });
+  const peak = Math.max(1, ...buckets);
+  const sTop = H - padB - strip + 6, sBot = H - padB;
+  gx.strokeStyle = "#1e2a38"; gx.beginPath();
+  gx.moveTo(padL, sBot); gx.lineTo(W - padR, sBot); gx.stroke();
+  gx.fillStyle = "#5b6b7d"; gx.textAlign = "right"; gx.textBaseline = "middle";
+  gx.fillText("flow", padL - 8, (sTop + sBot) / 2);
+  gx.fillText(peak, padL - 8, sTop + 4);
+  const cw = (W - padL - padR) / nb;
+  for(let i = 0; i < nb; i++){
+    if(!buckets[i]) continue;
+    const h = (buckets[i] / peak) * (sBot - sTop - 4);
+    gx.fillStyle = "rgba(55,211,238,.45)";
+    gx.fillRect(padL + i * cw + 1, sBot - h, Math.max(1, cw - 2), h);
+  }
+
+  /* axis frame */
+  gx.strokeStyle = "#233140"; gx.lineWidth = 1;
+  gx.strokeRect(padL, padT, W - padL - padR, plotB - padT);
+}
+
+/* ---------- loop ---------- */
+function tick(){
+  const cut = Date.now()/1000 - 60;
+  while(rateHist.length && rateHist[0] < cut) rateHist.shift();
+  $("#sRate").textContent = rateHist.length;
+  draw();
+  requestAnimationFrame(tick);
+}
+
+fitCanvas();
+fetch("/api/state").then(r=>r.json()).then(applyState).catch(()=>{});
+connect();
+requestAnimationFrame(tick);
+</script>
+</body>
+</html>

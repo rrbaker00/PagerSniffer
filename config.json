@@ -1,0 +1,41 @@
+{
+  "host": "127.0.0.1",
+  "port": 8080,
+
+  "mode": "camp",
+  "dwell_seconds": 20,
+  "camp_freq_mhz": 153.350,
+
+  "gain": 40,
+  "ppm": 0,
+  "sample_rate": 22050,
+  "device_index": 0,
+  "fm_extra": ["-E", "dc"],
+
+  "_comment_decoders": "DTMF/ZVEI/CCIR are low-false-positive tone detectors - they surface selcall/paging bursts on VHF business channels that are not POCSAG/FLEX.",
+  "decoders": ["POCSAG512", "POCSAG1200", "POCSAG2400", "FLEX",
+               "DTMF", "ZVEI1", "ZVEI2", "CCIR"],
+
+  "flag_regex": "([A-Za-z0-9_]{1,16}\\{[^}\\r\\n]{1,200}\\})",
+
+  "_comment_channels": "Camped on 153.350. The raw-signal monitor shows EVERY transmission on this channel (live level trace + carrier events) even when nothing decodes. Other entries are selectable from the web UI dropdown. Note: rtl_power shows 150-165 MHz flat within ~3 dB here - if 153 stays idle, the traffic is UHF (461.4738 had a live POCSAG512 carrier 30 dB over noise).",
+  "channels_mhz": [
+    153.350,
+    153.150,
+    153.200,
+    153.275,
+    153.425,
+    138.150,
+    461.4738
+  ],
+
+  "signal_monitor": true,
+  "signal_sample_hz": 10,
+  "signal_threshold_db": 6.0,
+  "signal_min_event_ms": 300,
+
+  "log_file": "captures.jsonl",
+  "flags_file": "flags.txt",
+  "backlog": 400,
+  "graph_window_seconds": 180
+}
